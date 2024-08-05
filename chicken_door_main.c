@@ -6,7 +6,13 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
+/*   DEPRECATED SINCE SWITCHING TO ESP32 AND MANY MANY MORE CHANGES, THIS IS SIMPLY FOR REFERENCE/DOCUMENTATION OF PROGRESS*/
 
+
+
+
+
+   
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
