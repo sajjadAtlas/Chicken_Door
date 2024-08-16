@@ -1,22 +1,12 @@
-/* Switch demo implementation using button and RGB LED
-   
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
 #include <sdkconfig.h>
 
 #include <iot_button.h>
 #include <esp_rmaker_core.h>
 #include <esp_rmaker_standard_params.h> 
-
+#include "driver/gpio.h"
 #include <app_reset.h>
 #include <ws2812_led.h>
 #include "app_priv.h"
-#include "driver/gpio.h"
 
 /* This is the button that is used for toggling the power */
 #define BUTTON_GPIO          CONFIG_EXAMPLE_BOARD_BUTTON_GPIO
@@ -28,31 +18,32 @@ static bool g_power_state = DEFAULT_POWER;
 
 /* These values correspoind to H,S,V = 120,100,10 */
 #define DEFAULT_RED     0
-#define DEFAULT_GREEN   50
+#define DEFAULT_GREEN   25
 #define DEFAULT_BLUE    0
-#define ENCODER_PIN 4
+#define ENCODER_PIN 2
 #define WIFI_RESET_BUTTON_TIMEOUT       3
 #define FACTORY_RESET_BUTTON_TIMEOUT    10
-
 static void app_indicator_set(bool state)
-{   
-    gpio_set_intr_type(ENCODER_PIN, GPIO_INTR_NEGEDGE);
+{
 
-    if (state) {
-        ws2812_led_set_rgb(DEFAULT_RED, DEFAULT_GREEN, DEFAULT_BLUE);
-        //gpio_set_intr_type(ENCODER_PIN, GPIO_INTR_NEGEDGE);
-        motor_start(state);
-    } else {
-        ws2812_led_set_rgb(50, 0, 0);
-        
-        motor_start(state);
+        if (state) {
+            ws2812_led_set_rgb(DEFAULT_RED, DEFAULT_GREEN, DEFAULT_BLUE);
+            gpio_set_intr_type(ENCODER_PIN, GPIO_INTR_NEGEDGE);
+          
+            motor_start(state);
+        } else {
+            ws2812_led_set_rgb(25, 0, 0);
+            gpio_set_intr_type(ENCODER_PIN, GPIO_INTR_NEGEDGE);
+            motor_start(state);
+        }
     }
-}
+    
+
 
 static void app_indicator_init(void)
 {
     ws2812_led_init();
-    app_indicator_set(g_power_state);
+    //app_indicator_set(g_power_state);
 }
 static void push_btn_cb(void *arg)
 {
