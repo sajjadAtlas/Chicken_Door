@@ -39,7 +39,9 @@
 #include <app_reset.h>
 #include <ws2812_led.h>
 #include <stdbool.h>
+#include "esp_pm.h"
 //#include "app_priv.h"
+#include "esp_wifi.h"
 
 
 #define DEFAULT_POWER  true
@@ -49,7 +51,7 @@
 #define LEDC_OUTPUT_IO_1        (6) 
 #define LEDC_DUTY_RES           LEDC_TIMER_13_BIT // Set duty resolution to 13 bits
 #define LEDC_DUTY               (8192) // Set duty to 50%. (2 ** 13) * 50% = 4096
-#define LEDC_FREQUENCY          (2000) // Frequency in Hertz. Set frequency at 1 kHz
+#define LEDC_FREQUENCY          (4000) // Frequency in Hertz. Set frequency at 1 kHz
 #define GPIO_OUTPUT_IO_1        (3)
 #define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_1))
 #define ENCODER_PIN         (2)
@@ -92,13 +94,14 @@ int app_driver_set_state(bool state);
 bool app_driver_get_state(void);
 static const char *TAG = "app_main";
 esp_rmaker_device_t *switch_device;
+static esp_pm_lock_handle_t s_pm_apb_lock   = NULL;
+
 static void app_indicator_set(bool state)
 {
     if(motorStopped==1){
         if (state) {
             ws2812_led_set_rgb(DEFAULT_RED, DEFAULT_GREEN, DEFAULT_BLUE);
             gpio_set_intr_type(ENCODER_PIN, GPIO_INTR_NEGEDGE);
-            
             motor_start(direction);
             printf("initial direction: %d\n", direction);
             direction = !direction;
@@ -107,6 +110,7 @@ static void app_indicator_set(bool state)
         } else {
             ws2812_led_set_rgb(25, 0, 0);
             gpio_set_intr_type(ENCODER_PIN, GPIO_INTR_NEGEDGE);
+
             motor_start(direction);
             printf("initial direction: %d\n", direction);
             direction = !direction;
@@ -218,7 +222,7 @@ static void IRAM_ATTR pinch_timer(TimerHandle_t xTimer){
 
     xTimerStop(xTimer, 0);
     vTaskDelay(2000/portTICK_PERIOD_MS);
-    printf("flag: %d\n", flag);
+    //printf("flag: %d\n", flag);
     cnt = 0;
     gpio_set_intr_type(SWITCH_PIN,  GPIO_INTR_POSEDGE);
     
@@ -251,7 +255,7 @@ static void encoder_task(void* arg){
 
            vTaskDelay(75/portTICK_PERIOD_MS);
            xTimerStart(timer, 0);
-            //printf("pulse count: %ld\n", io_num);
+            printf("pulse count: %ld\n", io_num);
             if(io_num >= 40){
                 cnt = 0;
                 io_num = 0;
@@ -261,6 +265,7 @@ static void encoder_task(void* arg){
                 //prevTime = 0;
                 xTimerStop(timer, 0);
                 motor_stop();
+
                 motorStopped = 1;
 
                 gpio_set_intr_type(SWITCH_PIN,  GPIO_INTR_POSEDGE);
@@ -321,8 +326,8 @@ static void ledc_init(void)
         .speed_mode       = LEDC_MODE,
         .timer_num        = LEDC_TIMER,
         .duty_resolution  = LEDC_DUTY_RES,
-        .freq_hz          = LEDC_FREQUENCY,  // Set output frequency at 1 kHz
-
+        .freq_hz          = LEDC_FREQUENCY,
+        .clk_cfg = 0
     };
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer0));
 
@@ -346,7 +351,8 @@ static void ledc_init(void)
         .speed_mode       = LEDC_MODE,
         .timer_num        = LEDC_TIMER,
         .duty_resolution  = LEDC_DUTY_RES,
-        .freq_hz          = LEDC_FREQUENCY,  // Set output frequency at 1 kHz
+        .freq_hz          = LEDC_FREQUENCY,
+        .clk_cfg = 0
 
     };
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer1));
@@ -365,6 +371,9 @@ static void ledc_init(void)
 }
 
  void motor_start(int direction){
+    ESP_ERROR_CHECK(esp_pm_lock_acquire(s_pm_apb_lock));
+        ESP_ERROR_CHECK(esp_pm_dump_locks(stdout));
+
     if(direction == UP){
 
         ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL_0, 8192));
@@ -392,6 +401,9 @@ static void ledc_init(void)
 }
 
  void motor_stop(){
+
+    ESP_ERROR_CHECK(esp_pm_lock_release(s_pm_apb_lock));
+    ESP_ERROR_CHECK(esp_pm_dump_locks(stdout));
 
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, UP_CHANNEL, 8192));
 
@@ -448,7 +460,7 @@ void app_main(void)
 
 
     gpio_init();
-    
+    esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "l_apb", &s_pm_apb_lock);
     //gpio_set_intr_type(ENCODER_PIN, GPIO_INTR_DISABLE);
     gpio_evt_queue = xQueueCreate(1, sizeof(uint32_t));
     encoder_queue = xQueueCreate(1, sizeof(uint32_t));
@@ -563,6 +575,19 @@ void app_main(void)
         vTaskDelay(5000/portTICK_PERIOD_MS);
         abort();
     }
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MAX_MODEM));
+    
+    // Configure dynamic frequency scaling:
+    // maximum and minimum frequencies are set in sdkconfig,
+    // automatic light sleep is enabled if tickless idle support is enabled.
+    esp_pm_config_t pm_config = {
+            .max_freq_mhz = 80, //Maximum CPU frequency
+            .min_freq_mhz = 40,
+            .light_sleep_enable = true
+
+    };
+    
+    ESP_ERROR_CHECK( esp_pm_configure(&pm_config) );
     
     gpio_set_intr_type(SWITCH_PIN,  GPIO_INTR_POSEDGE);
     vTaskDelay(1);
